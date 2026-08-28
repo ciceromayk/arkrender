@@ -3,6 +3,7 @@
 .env.*
 !.env.example
 *.key
+.streamlit/secrets.toml
 
 # --- saídas de geração (pesadas e reproduzíveis pelo log) ---
 bench/out/*
@@ -12,6 +13,7 @@ bench/in/*
 !bench/in/torre_hidden_line.png
 out/
 renders/
+projetos/
 
 # --- python ---
 __pycache__/

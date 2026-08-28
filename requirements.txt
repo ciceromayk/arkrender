@@ -5,3 +5,5 @@ replicate>=1.0
 # métrica de fidelidade geométrica
 opencv-python-headless>=4.9
 numpy>=1.26
+# interface (app/streamlit_app.py)
+streamlit>=1.38
