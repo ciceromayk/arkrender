@@ -1,0 +1,7 @@
+# rota principal
+fal-client>=0.5
+# rota alternativa (opcional)
+replicate>=1.0
+# métrica de fidelidade geométrica
+opencv-python-headless>=4.9
+numpy>=1.26

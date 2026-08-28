@@ -1,0 +1,33 @@
+# --- segredos: NUNCA commitar chaves de API ---
+.env
+.env.*
+!.env.example
+*.key
+
+# --- saídas de geração (pesadas e reproduzíveis pelo log) ---
+bench/out/*
+!bench/out/.gitkeep
+bench/in/*
+!bench/in/.gitkeep
+!bench/in/torre_hidden_line.png
+out/
+renders/
+
+# --- python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# --- app (etapa 2) ---
+node_modules/
+dist/
+.vite/
+.next/
+
+# --- sistema ---
+.DS_Store
+Thumbs.db
+desktop.ini
