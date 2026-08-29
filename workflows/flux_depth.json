@@ -1,0 +1,135 @@
+{
+  "1": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "flux1-dev-fp8.safetensors",
+      "weight_dtype": "fp8_e4m3fn"
+    },
+    "_meta": {"title": "Load Diffusion Model (Flux UNET)"}
+  },
+  "2": {
+    "class_type": "DualCLIPLoader",
+    "inputs": {
+      "clip_name1": "t5xxl_fp8_e4m3fn.safetensors",
+      "clip_name2": "clip_l.safetensors",
+      "type": "flux"
+    },
+    "_meta": {"title": "DualCLIPLoader"}
+  },
+  "3": {
+    "class_type": "KSampler",
+    "inputs": {
+      "model": ["1", 0],
+      "positive": ["12", 0],
+      "negative": ["12", 1],
+      "latent_image": ["13", 0],
+      "seed": 0,
+      "steps": 20,
+      "cfg": 1.0,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 0.75
+    },
+    "_meta": {"title": "KSampler — seed/denoise sobrescritos pelo runner"}
+  },
+  "4": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "ae.safetensors"
+    },
+    "_meta": {"title": "Load VAE"}
+  },
+  "5": {
+    "class_type": "ControlNetLoader",
+    "inputs": {
+      "control_net_name": "flux-controlnet-union.safetensors"
+    },
+    "_meta": {"title": "Load ControlNet Union"}
+  },
+  "6": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "",
+      "clip": ["2", 0]
+    },
+    "_meta": {"title": "CLIP Text Encode (positivo) — sobrescrito pelo runner"}
+  },
+  "7": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "",
+      "clip": ["2", 0]
+    },
+    "_meta": {"title": "CLIP Text Encode (negativo) — sobrescrito pelo runner"}
+  },
+  "8": {
+    "class_type": "FluxGuidance",
+    "inputs": {
+      "conditioning": ["6", 0],
+      "guidance": 3.5
+    },
+    "_meta": {"title": "FluxGuidance"}
+  },
+  "9": {
+    "class_type": "SetUnionControlNetType",
+    "inputs": {
+      "control_net": ["5", 0],
+      "type": "depth"
+    },
+    "_meta": {"title": "Set ControlNet Union mode = depth"}
+  },
+  "10": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "example.png",
+      "upload": "image"
+    },
+    "_meta": {"title": "Load Image — sobrescrito pelo runner"}
+  },
+  "11": {
+    "class_type": "DepthAnythingV2Preprocessor",
+    "inputs": {
+      "image": ["10", 0],
+      "ckpt_name": "depth_anything_v2_vitl.pth",
+      "resolution": 512
+    },
+    "_meta": {"title": "Depth Anything V2 (comfyui_controlnet_aux)"}
+  },
+  "12": {
+    "class_type": "ControlNetApplyAdvanced",
+    "inputs": {
+      "positive": ["8", 0],
+      "negative": ["7", 0],
+      "control_net": ["9", 0],
+      "image": ["11", 0],
+      "strength": 0.90,
+      "start_percent": 0.0,
+      "end_percent": 0.85
+    },
+    "_meta": {"title": "Apply ControlNet (Advanced) — strength sobrescrito pelo runner"}
+  },
+  "13": {
+    "class_type": "VAEEncode",
+    "inputs": {
+      "pixels": ["10", 0],
+      "vae": ["4", 0]
+    },
+    "_meta": {"title": "VAE Encode (img2img)"}
+  },
+  "14": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": ["3", 0],
+      "vae": ["4", 0]
+    },
+    "_meta": {"title": "VAE Decode"}
+  },
+  "15": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "images": ["14", 0],
+      "filename_prefix": "ARKITEKT"
+    },
+    "_meta": {"title": "Save Image"}
+  }
+}
