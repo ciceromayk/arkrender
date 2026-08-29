@@ -37,11 +37,36 @@ mas os modelos no Drive não somem: reabrir o notebook depois vira só
 
 ---
 
-## 2. Montar o workflow (uma vez só)
+## 2. O workflow já vem pronto (mas não testado numa GPU real)
 
-Abra a URL do túnel no navegador — é a interface do ComfyUI rodando no
-Colab. Monte o grafo abaixo (arraste os nós, plugue as saídas nas
-entradas correspondentes):
+`workflows/flux_depth.json` já está no repo, montado com base em workflows
+públicos conhecidos de Flux + ControlNet Union depth — os ids dos nós já
+batem com `core/engines/comfy_engine.py`, não precisa editar nada. **Mas eu
+não tenho GPU para rodar de ponta a ponta antes de publicar**, então ele
+pode falhar ao carregar ou ao executar. Se isso acontecer:
+
+1. Abra a URL do túnel no navegador (interface do ComfyUI).
+2. **Workflow → Open** e selecione `workflows/flux_depth.json`. Se o
+   ComfyUI recusar carregar, ele aponta o nó/campo com problema.
+3. Se carregar mas falhar ao clicar em "Run" (botão de fila), a mensagem de
+   erro aparece embaixo à direita — os dois pontos mais prováveis de
+   quebrar:
+   - **Nó `DepthAnythingV2Preprocessor`** (id `11`): o campo `ckpt_name`
+     está como `depth_anything_v2_vitl.pth`. Se o ComfyUI reclamar que o
+     valor não está na lista, abra o combo do nó na interface e escolha
+     a opção equivalente que aparecer (o preprocessador baixa o
+     checkpoint sozinho na primeira vez que roda).
+   - **Nó `ControlNetApplyAdvanced`** (id `12`): em algumas versões do
+     ComfyUI esse nó pede uma entrada extra `vae` (ligada ao `VAELoader`,
+     nó `4`). Se a mensagem de erro mencionar `vae` faltando nesse nó,
+     adicione a ligação na interface e salve de novo em **Save (API
+     Format)** por cima do mesmo arquivo.
+4. Depois de qualquer ajuste manual, exporte de novo em **Save (API
+   Format)**, sobrescreva `workflows/flux_depth.json` e mande o arquivo
+   pra mim (ou commite direto) — assim o próximo uso já sai certo.
+
+Se preferir montar do zero em vez de depurar o pronto, a tabela abaixo tem
+a lista completa de nós e conexões.
 
 | Nó | O que faz | Observação |
 |---|---|---|
@@ -66,39 +91,42 @@ Ligação geral: `LoadImage → DepthAnythingV2Preprocessor → SetUnionControlN
 positivo/negativo) → KSampler (latent vindo do VAEEncode do próprio
 LoadImage) → VAEDecode → SaveImage`.
 
-## 3. Exportar e conectar ao ARKITEKT
+## 3. Conectar ao ARKITEKT
 
-1. No ComfyUI, ative o modo desenvolvedor (**Settings → Enable Dev mode
-   Options**) e use **Save (API Format)** — isso baixa um `.json`.
-2. Salve como `workflows/flux_depth.json` no repo (substitui o arquivo
-   vazio hoje ausente — `workflows/README.md` já documentava esse passo).
-3. Abra o JSON exportado, ache o id numérico de cada nó da tabela acima
-   (é a chave de nível superior no JSON) e ajuste `NODE` em
-   `core/engines/comfy_engine.py`:
-   ```python
-   NODE = {
-       "positive": "6",      # id do CLIPTextEncode positivo
-       "negative": "7",      # id do CLIPTextEncode negativo
-       "load_image": "10",   # id do LoadImage
-       "controlnet": "12",   # id do ControlNetApplyAdvanced
-       "sampler": "3",       # id do KSampler
-   }
-   ```
-4. Exporte a URL do túnel:
+1. Cole a URL do túnel:
    ```bash
    export ARKITEKT_COMFY_URL="https://xxxx.trycloudflare.com"
    ```
    (ou cole na barra lateral do app Streamlit, ou em
    `.streamlit/secrets.toml` como `ARKITEKT_COMFY_URL`)
-5. Teste a conexão:
+2. Teste a conexão:
    ```bash
    python -c "from core.engines.comfy_engine import ComfyEngine as C; print(C().available())"
    ```
-6. Rode de verdade:
+   `(True, '')` quer dizer que o ComfyUI está acessível e o
+   `workflows/flux_depth.json` foi encontrado — não garante que a
+   renderização em si vai funcionar, só que dá pra tentar.
+3. Rode de verdade:
    ```bash
    python bench/run.py --in bench/in/sua_fachada.png --engines comfy --limit 1
    ```
-   ou no app Streamlit: motor **ComfyUI (grátis, self-hosted)**.
+   ou no app Streamlit: motor **ComfyUI (grátis, self-hosted)**. Se falhar
+   na hora de renderizar (não na conexão), volte pra seção 2 — é sinal de
+   que o workflow precisa do ajuste manual.
+
+Se você montar o grafo do zero (ou editar o que já existe) e os ids dos
+nós mudarem, ajuste `NODE` em `core/engines/comfy_engine.py` para apontar
+para os novos ids — é a chave de nível superior de cada nó no JSON
+exportado:
+```python
+NODE = {
+    "positive": "6",      # id do CLIPTextEncode positivo
+    "negative": "7",      # id do CLIPTextEncode negativo
+    "load_image": "10",   # id do LoadImage
+    "controlnet": "12",   # id do ControlNetApplyAdvanced
+    "sampler": "3",       # id do KSampler
+}
+```
 
 ---
 
