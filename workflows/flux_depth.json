@@ -91,7 +91,7 @@
     "inputs": {
       "image": ["10", 0],
       "ckpt_name": "depth_anything_v2_vitl.pth",
-      "resolution": 512
+      "resolution": 1024
     },
     "_meta": {"title": "Depth Anything V2 (comfyui_controlnet_aux)"}
   },
