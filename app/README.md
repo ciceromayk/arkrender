@@ -15,6 +15,10 @@ streamlit run app/streamlit_app.py
 Sem `secrets.toml`, o app pede a chave na hora, na barra lateral (vale só
 para a sessão do navegador, não é salva em disco).
 
+A barra lateral também deixa trocar o motor do estágio 1 para **ComfyUI
+(grátis, self-hosted)** — veja [`docs/comfyui_gratis.md`](../docs/comfyui_gratis.md)
+para subir o servidor sem custo num Colab.
+
 ## Deploy grátis — Streamlit Community Cloud
 
 1. Suba este repositório para o GitHub (branch atual já serve).

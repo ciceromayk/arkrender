@@ -19,7 +19,6 @@ import urllib.request
 
 from .base import Engine, RenderResult
 
-COMFY_URL = os.environ.get("ARKITEKT_COMFY_URL", "").rstrip("/")
 WORKFLOW = pathlib.Path(__file__).resolve().parents[2] / "workflows" / "flux_depth.json"
 
 # nós do workflow que o runner sobrescreve (ajuste os ids ao seu JSON)
@@ -35,20 +34,26 @@ NODE = {
 class ComfyEngine(Engine):
     name = "comfyui_flux_depth"
 
+    def __init__(self):
+        # lido no momento da instância (não na importação do módulo) para
+        # funcionar também em sessão longa (Streamlit) onde a URL só é
+        # conhecida depois que o usuário digita/cola o túnel do Colab.
+        self.url = os.environ.get("ARKITEKT_COMFY_URL", "").rstrip("/")
+
     def available(self):
-        if not COMFY_URL:
+        if not self.url:
             return False, "ARKITEKT_COMFY_URL não definida (precisa de uma GPU rodando ComfyUI)"
         if not WORKFLOW.exists():
             return False, f"workflow ausente: {WORKFLOW}"
         try:
-            urllib.request.urlopen(f"{COMFY_URL}/system_stats", timeout=5)
+            urllib.request.urlopen(f"{self.url}/system_stats", timeout=5)
         except Exception as e:
-            return False, f"ComfyUI inacessível em {COMFY_URL}: {e}"
+            return False, f"ComfyUI inacessível em {self.url}: {e}"
         return True, ""
 
     def _post(self, payload: dict) -> str:
         req = urllib.request.Request(
-            f"{COMFY_URL}/prompt",
+            f"{self.url}/prompt",
             data=json.dumps(payload).encode(),
             headers={"Content-Type": "application/json"},
         )
@@ -58,7 +63,7 @@ class ComfyEngine(Engine):
     def _wait(self, prompt_id: str, timeout: int = 600) -> dict:
         deadline = time.time() + timeout
         while time.time() < deadline:
-            with urllib.request.urlopen(f"{COMFY_URL}/history/{prompt_id}", timeout=15) as r:
+            with urllib.request.urlopen(f"{self.url}/history/{prompt_id}", timeout=15) as r:
                 hist = json.load(r)
             if prompt_id in hist:
                 return hist[prompt_id]
@@ -77,7 +82,7 @@ class ComfyEngine(Engine):
         body.write(f"\r\n--{boundary}--\r\n".encode())
 
         req = urllib.request.Request(
-            f"{COMFY_URL}/upload/image", data=body.getvalue(),
+            f"{self.url}/upload/image", data=body.getvalue(),
             headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
         )
         with urllib.request.urlopen(req, timeout=60) as r:
@@ -106,7 +111,7 @@ class ComfyEngine(Engine):
             )
             q = f"filename={img['filename']}&subfolder={img.get('subfolder','')}&type={img['type']}"
             dest = pathlib.Path(out_dir) / f"{self.name}__{config_id}.png"
-            urllib.request.urlretrieve(f"{COMFY_URL}/view?{q}", dest)
+            urllib.request.urlretrieve(f"{self.url}/view?{q}", dest)
 
             # custo real = tempo de GPU, não por imagem
             gpu_hour = float(os.environ.get("ARKITEKT_GPU_USD_HOUR", "0.60"))
