@@ -140,14 +140,7 @@ with tab_render:
     pronto = bool(upload) and bool(need_fal) and bool(need_comfy)
 
     if st.button("Renderizar", type="primary", disabled=not pronto, key="btn_render"):
-        # limpa o tmpdir da renderização anterior desta sessão — sem isso o
-        # disco acumula screenshot+control_map+render de todo clique
-        tmpdir_anterior = st.session_state.get("_tmpdir")
-        if tmpdir_anterior:
-            shutil.rmtree(tmpdir_anterior, ignore_errors=True)
-
         tmpdir = tempfile.mkdtemp(prefix="arkitekt_")
-        st.session_state["_tmpdir"] = tmpdir
         src_name = _safe_name(upload.name, "screenshot.png")
         src_path = pathlib.Path(tmpdir) / src_name
         src_path.write_bytes(upload.getvalue())
@@ -175,6 +168,7 @@ with tab_render:
             try:
                 log = render(projeto, str(src_path), out_dir=tmpdir, engine=engine)
             except Exception as e:
+                shutil.rmtree(tmpdir, ignore_errors=True)  # descarta a tentativa que falhou
                 st.error(f"Falhou: {e}")
                 st.stop()
             finally:
@@ -183,6 +177,16 @@ with tab_render:
                 elif fal_key:
                     os.environ.pop("FAL_KEY", None)
 
+        # só é seguro apagar o tmpdir da renderização anterior DEPOIS que a
+        # nova terminou com sucesso — apagar antes derruba o resultado ainda
+        # exibido em session_state se esta tentativa falhar (bug real: uma
+        # segunda renderização que falha deixava "log" apontando pra arquivo
+        # já apagado, e o painel de resultado tentava abrir um path morto).
+        tmpdir_anterior = st.session_state.get("_tmpdir")
+        if tmpdir_anterior and tmpdir_anterior != tmpdir:
+            shutil.rmtree(tmpdir_anterior, ignore_errors=True)
+
+        st.session_state["_tmpdir"] = tmpdir
         st.session_state["log"] = log
         st.session_state["projeto"] = projeto
         st.session_state["refino_usado"] = refino
@@ -263,9 +267,6 @@ with tab_estudo:
                                       key="upload_estudo")
     if upload_estudo:
         st.image(upload_estudo, caption="referência", width=480)
-        if nome_motor.startswith("Grok"):
-            st.caption("Grok Imagine hoje é texto→imagem — este screenshot NÃO é enviado à API, "
-                       "só ajuda você a descrever a cena no prompt abaixo.")
 
     prompt_estudo = st.text_area("Prompt", key="prompt_estudo",
                                   placeholder="ex.: torre litorânea ao entardecer, luz dourada, poucas nuvens")
@@ -274,12 +275,7 @@ with tab_estudo:
     pronto_estudo = bool(upload_estudo) and bool(chave_estudo) and bool(prompt_estudo.strip())
 
     if st.button("Gerar estudo", type="primary", disabled=not pronto_estudo, key="btn_estudo"):
-        tmpdir_estudo_anterior = st.session_state.get("_tmpdir_estudo")
-        if tmpdir_estudo_anterior:
-            shutil.rmtree(tmpdir_estudo_anterior, ignore_errors=True)
-
         tmpdir_estudo = tempfile.mkdtemp(prefix="arkitekt_estudo_")
-        st.session_state["_tmpdir_estudo"] = tmpdir_estudo
         src_name_estudo = _safe_name(upload_estudo.name, "referencia.png")
         src_path_estudo = pathlib.Path(tmpdir_estudo) / src_name_estudo
         src_path_estudo.write_bytes(upload_estudo.getvalue())
@@ -292,6 +288,7 @@ with tab_estudo:
                 log_estudo = gerar_estudo(EngineCls(), str(src_path_estudo), prompt_estudo,
                                            seed=int(seed_estudo) or None, out_dir=tmpdir_estudo)
             except Exception as e:
+                shutil.rmtree(tmpdir_estudo, ignore_errors=True)  # descarta a tentativa que falhou
                 st.error(f"Falhou: {e}")
                 st.stop()
             finally:
@@ -300,6 +297,14 @@ with tab_estudo:
                 else:
                     os.environ.pop(env_var, None)
 
+        # mesma lógica da aba de render: só apaga o tmpdir anterior depois
+        # que o novo terminou com sucesso, senão uma falha na segunda geração
+        # deixa log_estudo apontando pra um arquivo já apagado.
+        tmpdir_estudo_anterior = st.session_state.get("_tmpdir_estudo")
+        if tmpdir_estudo_anterior and tmpdir_estudo_anterior != tmpdir_estudo:
+            shutil.rmtree(tmpdir_estudo_anterior, ignore_errors=True)
+
+        st.session_state["_tmpdir_estudo"] = tmpdir_estudo
         st.session_state["log_estudo"] = log_estudo
 
     elif not upload_estudo:

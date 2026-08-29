@@ -36,15 +36,20 @@ módulo calcula `fidelity.score()`.
 |---|---|---|---|
 | Gemini (Nano Banana) | `core/engines/estudo/gemini_engine.py` | `GEMINI_API_KEY` | Recebe o screenshot como referência de verdade |
 | GPT Image (OpenAI) | `core/engines/estudo/gptimage_engine.py` | `OPENAI_API_KEY` | Idem — usa `images.edit` |
-| Grok Imagine (xAI) | `core/engines/estudo/grok_engine.py` | `XAI_API_KEY` | **Hoje é texto→imagem** — o screenshot não é enviado à API, só orienta você a descrever a cena no prompt. Reveja o código se a xAI abrir edição com imagem de referência. |
+| Grok Imagine (xAI) | `core/engines/estudo/grok_engine.py` | `XAI_API_KEY` | Recebe o screenshot como referência via `POST /v1/images/edits` (HTTP cru, sem SDK) |
 
 **Nenhum dos três foi testado contra a API real nesta sessão** — sem
-chaves disponíveis no ambiente de desenvolvimento. O formato de request/
-resposta segue a documentação pública de cada SDK (`google-genai` e
-`openai`); se algo mudou desde então, o erro vai aparecer em
-`available()` (pacote ausente / chave ausente) ou na exceção capturada
-por `StudyResult.error` — nunca falha muda, o padrão é o mesmo do resto
-do repo.
+chaves disponíveis no ambiente de desenvolvimento. Gemini e GPT Image
+seguem a documentação pública de cada SDK (`google-genai` e `openai`).
+**Grok é o de maior risco**: `docs.x.ai` está bloqueado pelo proxy de
+egress deste ambiente, então o formato exato do corpo da requisição em
+`grok_engine.py` é uma tentativa fundamentada (confirmei via busca na web
+que o endpoint de edição existe, não consegui ler a documentação oficial
+pra confirmar o formato do payload) — confira contra
+https://docs.x.ai/developers/model-capabilities/images/editing na
+primeira tentativa real. Em qualquer um dos três, se algo mudou desde
+então, o erro aparece em `available()` (pacote/chave ausente) ou na
+exceção capturada por `StudyResult.error` — nunca falha muda.
 
 ## Uso
 

@@ -12,6 +12,7 @@ Não testado contra a API real nesta sessão (sem chave disponível) — a
 forma da resposta (candidates[].content.parts[].inline_data) segue a
 documentação pública do SDK google-genai; confira se mudou caso quebre.
 """
+import mimetypes
 import os
 import pathlib
 import time
@@ -43,7 +44,9 @@ class GeminiEngine(StudyEngine):
 
             client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
             dados = pathlib.Path(image_path).read_bytes()
-            mime = "image/png" if image_path.lower().endswith(".png") else "image/jpeg"
+            # mimetypes cobre .png/.jpg/.jpeg/.webp corretamente — antes disso
+            # todo não-PNG (inclusive .webp) virava image/jpeg por engano.
+            mime = mimetypes.guess_type(image_path)[0] or "image/jpeg"
 
             res = client.models.generate_content(
                 model=MODEL,

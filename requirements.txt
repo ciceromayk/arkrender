@@ -9,4 +9,4 @@ numpy>=1.26
 streamlit>=1.38
 # motores de ESTUDO/moodboard (opcionais — core/engines/estudo/)
 google-genai>=0.3          # Gemini (Nano Banana)
-openai>=1.40                # GPT Image e Grok (API da xAI é compatível com este SDK)
+openai>=1.40                # GPT Image (OpenAI). Grok usa urllib puro, sem SDK.
