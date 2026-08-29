@@ -1,4 +1,4 @@
-# rota principal
+# rota principal (render aprovado — ControlNet)
 fal-client>=0.5
 # rota alternativa (opcional)
 replicate>=1.0
@@ -7,3 +7,6 @@ opencv-python-headless>=4.9
 numpy>=1.26
 # interface (app/streamlit_app.py)
 streamlit>=1.38
+# motores de ESTUDO/moodboard (opcionais — core/engines/estudo/)
+google-genai>=0.3          # Gemini (Nano Banana)
+openai>=1.40                # GPT Image e Grok (API da xAI é compatível com este SDK)

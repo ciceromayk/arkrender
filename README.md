@@ -18,6 +18,12 @@ prestação de contas de incorporadora, não serve.
 O ARKITEKT trava a geometria com ControlNet depth antes de deixar qualquer
 modelo pintar, e **mede** quanto do projeto sobreviveu.
 
+Existe também um **modo estudo/moodboard** (Gemini, GPT Image, Grok) para
+quando você quer variedade e atmosfera, não fidelidade — deliberadamente
+separado do render aprovado, sem métrica de aderência nenhuma, pra nunca
+fingir uma garantia que esses motores não dão. Ver
+[`docs/modo_estudo.md`](docs/modo_estudo.md).
+
 Leia [`docs/arquitetura.md`](docs/arquitetura.md) antes de mexer no pipeline.
 
 ---
@@ -26,17 +32,23 @@ Leia [`docs/arquitetura.md`](docs/arquitetura.md) antes de mexer no pipeline.
 
 ```
 arkitekt/
-├── core/                 módulo reutilizável — o ativo do repo
-│   ├── presets.py        estilo × iluminação × câmera (dados, não prompt solto)
-│   ├── fidelity.py       métrica objetiva de aderência geométrica
-│   ├── pipeline.py       pipeline híbrido de 2 estágios + identidade de projeto
-│   └── engines/          um adaptador por rota (fal, replicate, comfyui)
-├── bench/                comparação de motores — etapa atual
-│   ├── run.py            runner
-│   ├── report.py         grade comparativa HTML
-│   └── demo_fixture.py   valida a métrica sem gastar crédito
-├── docs/arquitetura.md   decisões, pipeline, custos, como exportar do Revit/SketchUp
-└── app/                  interface (etapa 2) — casca fina sobre core/
+├── core/                        módulo reutilizável — o ativo do repo
+│   ├── presets.py               estilo × iluminação × câmera (dados, não prompt solto)
+│   ├── fidelity.py              métrica objetiva de aderência geométrica
+│   ├── pipeline.py              pipeline híbrido de 2 estágios + identidade de projeto
+│   ├── estudo.py                modo estudo/moodboard — SEM aderência, de propósito
+│   └── engines/
+│       ├── fal_engine.py        rota principal (ControlNet) — render aprovado
+│       ├── replicate_engine.py  alternativa (ControlNet) — render aprovado
+│       ├── comfy_engine.py      self-hosted grátis (ControlNet) — render aprovado
+│       └── estudo/              Gemini, GPT Image, Grok — SEM ControlNet, só estudo
+├── bench/                       comparação de motores de render aprovado
+│   ├── run.py                   runner
+│   ├── report.py                grade comparativa HTML
+│   └── demo_fixture.py          valida a métrica sem gastar crédito
+├── docs/arquitetura.md          decisões, pipeline, custos, como exportar do Revit/SketchUp
+├── docs/modo_estudo.md          por que o modo estudo é separado, e como usar
+└── app/                         interface Streamlit — casca fina sobre core/
 ```
 
 ## Instalar

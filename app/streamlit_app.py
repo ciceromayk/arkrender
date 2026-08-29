@@ -1,7 +1,13 @@
 """ARKITEKT — interface Streamlit.
 
-Casca fina sobre core/pipeline.py: upload de screenshot, escolha de preset,
-roda o pipeline híbrido de 2 estágios e mostra o resultado + aderência.
+Casca fina sobre core/pipeline.py e core/estudo.py: upload de screenshot,
+escolha de preset, roda o pipeline e mostra o resultado.
+
+Duas abas, deliberadamente separadas:
+  - Render de projeto: fal.ai/ComfyUI, ControlNet, aderência medida —
+    o único caminho que pode virar material aprovado.
+  - Estudo / moodboard: Gemini/GPT Image/Grok, sem ControlNet, sem
+    aderência — nunca aprovado, ver docs/modo_estudo.md.
 
 Nenhuma lógica de render mora aqui — só coleta input, chama core/ e exibe.
 
@@ -24,8 +30,18 @@ from core import presets
 from core.pipeline import Projeto, render
 from core.engines.fal_engine import FalEngine
 from core.engines.comfy_engine import ComfyEngine
+from core.estudo import gerar_estudo
+from core.engines.estudo.gemini_engine import GeminiEngine
+from core.engines.estudo.gptimage_engine import GptImageEngine
+from core.engines.estudo.grok_engine import GrokEngine
 
 st.set_page_config(page_title="ARKITEKT", page_icon="🏗️", layout="wide")
+
+MOTORES_ESTUDO = {
+    "Gemini (Nano Banana)": ("GEMINI_API_KEY", GeminiEngine),
+    "GPT Image (OpenAI)": ("OPENAI_API_KEY", GptImageEngine),
+    "Grok Imagine (xAI)": ("XAI_API_KEY", GrokEngine),
+}
 
 
 def _secret_or_env(key: str) -> str:
@@ -49,6 +65,8 @@ def _safe_name(name: str, fallback: str) -> str:
 
 st.title("🏗️ ARKITEKT")
 st.caption("Screenshot de modelo 3D → render fotorrealista, com fidelidade geométrica medida.")
+
+tab_render, tab_estudo = st.tabs(["🏗️ Render de projeto", "🎨 Estudo / moodboard"])
 
 with st.sidebar:
     st.header("Motor (estágio 1 — estrutura)")
@@ -106,111 +124,204 @@ with st.sidebar:
     if usa_comfy and refino:
         st.warning("Refino ligado + motor ComfyUI: o estágio 1 é grátis, mas o estágio 2 cobra do fal.ai.")
 
-st.subheader("1. Screenshot de origem")
-upload = st.file_uploader("SketchUp/Revit — hidden line ou clay, 2048px no lado maior",
-                           type=["png", "jpg", "jpeg", "webp"])
+# ---------------------------------------------------------------------------
+# Aba 1 — Render de projeto (fal.ai/ComfyUI, ControlNet, aderência medida)
+# ---------------------------------------------------------------------------
+with tab_render:
+    st.subheader("1. Screenshot de origem")
+    upload = st.file_uploader("SketchUp/Revit — hidden line ou clay, 2048px no lado maior",
+                               type=["png", "jpg", "jpeg", "webp"], key="upload_render")
 
-if upload:
-    st.image(upload, caption="origem", width=480)
+    if upload:
+        st.image(upload, caption="origem", width=480)
 
-need_fal = fal_key if (not usa_comfy or refino) else True   # obrigatória exceto comfy sem refino
-need_comfy = comfy_url if usa_comfy else True
-pronto = bool(upload) and bool(need_fal) and bool(need_comfy)
+    need_fal = fal_key if (not usa_comfy or refino) else True   # obrigatória exceto comfy sem refino
+    need_comfy = comfy_url if usa_comfy else True
+    pronto = bool(upload) and bool(need_fal) and bool(need_comfy)
 
-if st.button("Renderizar", type="primary", disabled=not pronto):
-    # limpa o tmpdir da renderização anterior desta sessão — sem isso o
-    # disco acumula screenshot+control_map+render de todo clique
-    tmpdir_anterior = st.session_state.get("_tmpdir")
-    if tmpdir_anterior:
-        shutil.rmtree(tmpdir_anterior, ignore_errors=True)
+    if st.button("Renderizar", type="primary", disabled=not pronto, key="btn_render"):
+        # limpa o tmpdir da renderização anterior desta sessão — sem isso o
+        # disco acumula screenshot+control_map+render de todo clique
+        tmpdir_anterior = st.session_state.get("_tmpdir")
+        if tmpdir_anterior:
+            shutil.rmtree(tmpdir_anterior, ignore_errors=True)
 
-    tmpdir = tempfile.mkdtemp(prefix="arkitekt_")
-    st.session_state["_tmpdir"] = tmpdir
-    src_name = _safe_name(upload.name, "screenshot.png")
-    src_path = pathlib.Path(tmpdir) / src_name
-    src_path.write_bytes(upload.getvalue())
+        tmpdir = tempfile.mkdtemp(prefix="arkitekt_")
+        st.session_state["_tmpdir"] = tmpdir
+        src_name = _safe_name(upload.name, "screenshot.png")
+        src_path = pathlib.Path(tmpdir) / src_name
+        src_path.write_bytes(upload.getvalue())
 
-    projeto = Projeto(nome=nome, seed=int(seed), estilo=estilo, iluminacao=iluminacao,
-                       camera=camera, control_weight=control_weight, strength=strength,
-                       refino=refino, refino_strength=refino_strength, prompt_extra=prompt_extra)
+        projeto = Projeto(nome=nome, seed=int(seed), estilo=estilo, iluminacao=iluminacao,
+                           camera=camera, control_weight=control_weight, strength=strength,
+                           refino=refino, refino_strength=refino_strength, prompt_extra=prompt_extra)
 
-    if usa_comfy:
-        os.environ["ARKITEKT_COMFY_URL"] = comfy_url
-        engine = ComfyEngine()
+        if usa_comfy:
+            os.environ["ARKITEKT_COMFY_URL"] = comfy_url
+            engine = ComfyEngine()
+        else:
+            engine = FalEngine()
+
+        # o SDK da fal lê a chave de os.environ (é assim que fal_client funciona) —
+        # janela de exposição fica restrita à chamada, valor anterior é restaurado
+        # depois. Processo é compartilhado entre sessões do Streamlit, então evite
+        # deploys multiusuário simultâneo com chaves diferentes por sessão.
+        fal_key_anterior = os.environ.get("FAL_KEY")
+        if fal_key:
+            os.environ["FAL_KEY"] = fal_key
+
+        with st.spinner("Renderizando — estágio 1 (estrutura)"
+                         + (" + estágio 2 (acabamento)..." if refino else "...")):
+            try:
+                log = render(projeto, str(src_path), out_dir=tmpdir, engine=engine)
+            except Exception as e:
+                st.error(f"Falhou: {e}")
+                st.stop()
+            finally:
+                if fal_key_anterior is not None:
+                    os.environ["FAL_KEY"] = fal_key_anterior
+                elif fal_key:
+                    os.environ.pop("FAL_KEY", None)
+
+        st.session_state["log"] = log
+        st.session_state["projeto"] = projeto
+        st.session_state["refino_usado"] = refino
+
+    elif not upload:
+        st.info("Envie um screenshot para habilitar o botão.")
+    elif usa_comfy and not comfy_url:
+        st.info("Informe a URL do ComfyUI na barra lateral para habilitar o botão.")
+    elif not need_fal:
+        st.info("Informe a FAL_KEY na barra lateral para habilitar o botão "
+                 "(obrigatória com motor fal.ai, ou com Refino ligado).")
+
+    # Fora do bloco do botão de propósito: marcar a checkbox "salvar" abaixo
+    # dispara um rerun do script em que st.button() volta a False, então o
+    # resultado só sobrevive se vier do session_state, não de uma variável local.
+    if "log" in st.session_state:
+        log = st.session_state["log"]
+        projeto = st.session_state["projeto"]
+        refino_usado = st.session_state["refino_usado"]
+        nome_seguro = _safe_name(projeto.nome, "projeto")
+
+        st.subheader("2. Resultado")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.image(log["estrutura"], caption="estágio 1 — estrutura")
+        with col2:
+            st.image(log["final"], caption="estágio 2 — final" if refino_usado else "final (sem refino)")
+
+        aderencia = log["aderencia"]
+        cor = "🟢" if aderencia >= 0.80 else ("🟡" if aderencia >= 0.45 else "🔴")
+        st.metric("Aderência geométrica", f"{aderencia:.2f}", help=log["veredito"])
+        st.caption(f"{cor} {log['veredito']}")
+
+        if log.get("alerta"):
+            st.warning(log["alerta"])
+
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Tempo", f"{log['segundos']}s")
+        c2.metric("Custo", f"US$ {log['custo_usd']:.3f}")
+        c3.metric("Invenção", "—")
+
+        with open(log["final"], "rb") as f:
+            st.download_button("Baixar render final", f, file_name=pathlib.Path(log["final"]).name,
+                                key="dl_render_img")
+
+        st.download_button("Baixar log (JSON)", json.dumps(log, ensure_ascii=False, indent=2),
+                            file_name=f"{nome_seguro}.json", key="dl_render_json")
+
+        with st.expander("Prompt usado"):
+            st.code(log["prompt"], language=None)
+
+        if st.checkbox("Salvar identidade visual do projeto (projetos/*.json)", key="chk_salvar_projeto"):
+            dest = projeto.salvar(str(ROOT / "projetos" / f"{nome_seguro}.json"))
+            st.info(f"Salvo em {dest} — reaproveite para novos ângulos com a mesma coerência visual.")
+
+# ---------------------------------------------------------------------------
+# Aba 2 — Estudo / moodboard (Gemini/GPT Image/Grok, SEM ControlNet)
+# ---------------------------------------------------------------------------
+with tab_estudo:
+    st.warning(
+        "⚠️ **Sem controle de geometria — nunca use para material aprovado.** "
+        "Estes motores reinterpretam a cena livremente (podem mudar pavimento, "
+        "esquadria, volumetria). Sirva só de referência de atmosfera/moodboard. "
+        "Ver [docs/modo_estudo.md](https://github.com/ciceromayk/arkrender/blob/main/docs/modo_estudo.md)."
+    )
+
+    nome_motor = st.radio("Motor", list(MOTORES_ESTUDO.keys()), key="motor_estudo")
+    env_var, EngineCls = MOTORES_ESTUDO[nome_motor]
+
+    chave_estudo = _secret_or_env(env_var)
+    if chave_estudo:
+        st.success(f"{env_var} carregada dos secrets/ambiente.")
     else:
-        engine = FalEngine()
+        chave_estudo = st.text_input(env_var, type="password", key="input_chave_estudo",
+                                      help="Não é salva — vale só para esta sessão do navegador.")
 
-    # o SDK da fal lê a chave de os.environ (é assim que fal_client funciona) —
-    # janela de exposição fica restrita à chamada, valor anterior é restaurado
-    # depois. Processo é compartilhado entre sessões do Streamlit, então evite
-    # deploys multiusuário simultâneo com chaves diferentes por sessão.
-    fal_key_anterior = os.environ.get("FAL_KEY")
-    if fal_key:
-        os.environ["FAL_KEY"] = fal_key
+    upload_estudo = st.file_uploader("Screenshot de referência", type=["png", "jpg", "jpeg", "webp"],
+                                      key="upload_estudo")
+    if upload_estudo:
+        st.image(upload_estudo, caption="referência", width=480)
+        if nome_motor.startswith("Grok"):
+            st.caption("Grok Imagine hoje é texto→imagem — este screenshot NÃO é enviado à API, "
+                       "só ajuda você a descrever a cena no prompt abaixo.")
 
-    with st.spinner("Renderizando — estágio 1 (estrutura)"
-                     + (" + estágio 2 (acabamento)..." if refino else "...")):
-        try:
-            log = render(projeto, str(src_path), out_dir=tmpdir, engine=engine)
-        except Exception as e:
-            st.error(f"Falhou: {e}")
-            st.stop()
-        finally:
-            if fal_key_anterior is not None:
-                os.environ["FAL_KEY"] = fal_key_anterior
-            elif fal_key:
-                os.environ.pop("FAL_KEY", None)
+    prompt_estudo = st.text_area("Prompt", key="prompt_estudo",
+                                  placeholder="ex.: torre litorânea ao entardecer, luz dourada, poucas nuvens")
+    seed_estudo = st.number_input("Seed (opcional, 0 = aleatório)", value=0, step=1, key="seed_estudo")
 
-    st.session_state["log"] = log
-    st.session_state["projeto"] = projeto
-    st.session_state["refino_usado"] = refino
+    pronto_estudo = bool(upload_estudo) and bool(chave_estudo) and bool(prompt_estudo.strip())
 
-elif not upload:
-    st.info("Envie um screenshot para habilitar o botão.")
-elif usa_comfy and not comfy_url:
-    st.info("Informe a URL do ComfyUI na barra lateral para habilitar o botão.")
-elif not need_fal:
-    st.info("Informe a FAL_KEY na barra lateral para habilitar o botão "
-             "(obrigatória com motor fal.ai, ou com Refino ligado).")
+    if st.button("Gerar estudo", type="primary", disabled=not pronto_estudo, key="btn_estudo"):
+        tmpdir_estudo_anterior = st.session_state.get("_tmpdir_estudo")
+        if tmpdir_estudo_anterior:
+            shutil.rmtree(tmpdir_estudo_anterior, ignore_errors=True)
 
-# Fora do bloco do botão de propósito: marcar a checkbox "salvar" abaixo
-# dispara um rerun do script em que st.button() volta a False, então o
-# resultado só sobrevive se vier do session_state, não de uma variável local.
-if "log" in st.session_state:
-    log = st.session_state["log"]
-    projeto = st.session_state["projeto"]
-    refino_usado = st.session_state["refino_usado"]
-    nome_seguro = _safe_name(projeto.nome, "projeto")
+        tmpdir_estudo = tempfile.mkdtemp(prefix="arkitekt_estudo_")
+        st.session_state["_tmpdir_estudo"] = tmpdir_estudo
+        src_name_estudo = _safe_name(upload_estudo.name, "referencia.png")
+        src_path_estudo = pathlib.Path(tmpdir_estudo) / src_name_estudo
+        src_path_estudo.write_bytes(upload_estudo.getvalue())
 
-    st.subheader("2. Resultado")
-    col1, col2 = st.columns(2)
-    with col1:
-        st.image(log["estrutura"], caption="estágio 1 — estrutura")
-    with col2:
-        st.image(log["final"], caption="estágio 2 — final" if refino_usado else "final (sem refino)")
+        chave_anterior = os.environ.get(env_var)
+        os.environ[env_var] = chave_estudo
 
-    aderencia = log["aderencia"]
-    cor = "🟢" if aderencia >= 0.80 else ("🟡" if aderencia >= 0.45 else "🔴")
-    st.metric("Aderência geométrica", f"{aderencia:.2f}", help=log["veredito"])
-    st.caption(f"{cor} {log['veredito']}")
+        with st.spinner(f"Gerando com {nome_motor}..."):
+            try:
+                log_estudo = gerar_estudo(EngineCls(), str(src_path_estudo), prompt_estudo,
+                                           seed=int(seed_estudo) or None, out_dir=tmpdir_estudo)
+            except Exception as e:
+                st.error(f"Falhou: {e}")
+                st.stop()
+            finally:
+                if chave_anterior is not None:
+                    os.environ[env_var] = chave_anterior
+                else:
+                    os.environ.pop(env_var, None)
 
-    if log.get("alerta"):
-        st.warning(log["alerta"])
+        st.session_state["log_estudo"] = log_estudo
 
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Tempo", f"{log['segundos']}s")
-    c2.metric("Custo", f"US$ {log['custo_usd']:.3f}")
-    c3.metric("Invenção", "—")
+    elif not upload_estudo:
+        st.info("Envie um screenshot de referência para habilitar o botão.")
+    elif not chave_estudo:
+        st.info(f"Informe a {env_var} acima para habilitar o botão.")
+    elif not prompt_estudo.strip():
+        st.info("Escreva um prompt para habilitar o botão.")
 
-    with open(log["final"], "rb") as f:
-        st.download_button("Baixar render final", f, file_name=pathlib.Path(log["final"]).name)
+    if "log_estudo" in st.session_state:
+        le = st.session_state["log_estudo"]
+        st.subheader("Resultado")
+        st.image(le["imagem"], caption=f"{le['engine']} — NÃO aprovado para venda", width=480)
+        st.caption(f"🔴 {le['motivo']}")
 
-    st.download_button("Baixar log (JSON)", json.dumps(log, ensure_ascii=False, indent=2),
-                        file_name=f"{nome_seguro}.json")
+        c1, c2 = st.columns(2)
+        c1.metric("Tempo", f"{le['segundos']}s")
+        c2.metric("Custo", f"US$ {le['custo_usd']:.3f}")
 
-    with st.expander("Prompt usado"):
-        st.code(log["prompt"], language=None)
+        with open(le["imagem"], "rb") as f:
+            st.download_button("Baixar imagem", f, file_name=pathlib.Path(le["imagem"]).name,
+                                key="dl_estudo_img")
 
-    if st.checkbox("Salvar identidade visual do projeto (projetos/*.json)"):
-        dest = projeto.salvar(str(ROOT / "projetos" / f"{nome_seguro}.json"))
-        st.info(f"Salvo em {dest} — reaproveite para novos ângulos com a mesma coerência visual.")
+        st.download_button("Baixar log (JSON)", json.dumps(le, ensure_ascii=False, indent=2),
+                            file_name="estudo.json", key="dl_estudo_json")
