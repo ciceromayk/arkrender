@@ -57,8 +57,14 @@ class ComfyEngine(Engine):
             data=json.dumps(payload).encode(),
             headers={"Content-Type": "application/json"},
         )
-        with urllib.request.urlopen(req, timeout=30) as r:
-            return json.load(r)["prompt_id"]
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                return json.load(r)["prompt_id"]
+        except urllib.error.HTTPError as e:
+            # ComfyUI recusa grafo inválido com 400 e diz o motivo (node_errors)
+            # no corpo — sem ler isso, sobra só "HTTP Error 400: Bad Request".
+            corpo = e.read().decode(errors="replace")[:800]
+            raise RuntimeError(f"ComfyUI recusou o grafo (HTTP {e.code}): {corpo}") from e
 
     def _wait(self, prompt_id: str, timeout: int = 600) -> dict:
         deadline = time.time() + timeout
@@ -72,15 +78,19 @@ class ComfyEngine(Engine):
 
     @staticmethod
     def _erro_execucao(hist: dict) -> str:
-        """ComfyUI reporta o nó que quebrou em status.messages — sem isso,
+        """ComfyUI reporta o que aconteceu em status.messages — sem isso,
         um grafo com erro devolve outputs vazio e o chamador não sabe por quê."""
-        for tipo, dados in hist.get("status", {}).get("messages", []):
-            if tipo == "execution_error":
-                no = dados.get("node_id", "?")
-                classe = dados.get("node_type", "?")
-                msg = dados.get("exception_message", "erro sem mensagem")
-                return f"ComfyUI: nó {no} ({classe}) falhou — {msg}"
-        return "ComfyUI não devolveu nenhuma imagem e não reportou erro explícito"
+        status = hist.get("status", {})
+        msgs = status.get("messages") or []
+        partes = [
+            f"{m[0]}: {(m[1] or {}).get('exception_message') or (m[1] or {}).get('node_type') or m[1]}"
+            for m in msgs if isinstance(m, (list, tuple)) and len(m) == 2
+        ]
+        if partes:
+            return "ComfyUI: " + "; ".join(partes)
+        if status:
+            return f"ComfyUI não produziu imagem — status: {json.dumps(status, ensure_ascii=False)[:500]}"
+        return "ComfyUI não devolveu nenhuma imagem e não reportou status"
 
     def _upload(self, image_path: str) -> str:
         """multipart sem dependência externa."""

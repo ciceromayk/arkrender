@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 """ARKITEKT — valida workflows/flux_depth.json contra um ComfyUI real.
 
-Duas etapas, a primeira grátis:
+Três camadas, da mais barata para a mais cara:
 
-  1. checagem de grafo (sempre roda): bate cada nó do workflow contra
-     /object_info do ComfyUI — confere se a classe existe (custom node
-     instalado?) e se os valores fixos (checkpoints, modelos) estão nas
-     opções válidas. Não gasta GPU nem carrega modelo nenhum.
+  1. servidor (sempre roda): o ComfyUI responde e tem GPU? Avisa se a VRAM
+     livre for pouca pra Flux fp8 (< 14 GB costuma dar OOM).
 
-  2. renderização de verdade (--render): roda o grafo completo na fixture
+  2. grafo (sempre roda): bate cada nó do workflow contra /object_info do
+     ComfyUI — classe existe (custom node instalado)? input obrigatório
+     faltando? input desconhecido? valor fixo (checkpoint/modelo) dentro
+     das opções válidas? Não gasta GPU nem carrega modelo nenhum.
+
+  3. renderização de verdade (--render): roda o grafo completo na fixture
      sintética de bench/in/ via core.engines.comfy_engine.ComfyEngine —
      a mesma classe usada pelo app e pelo bench/run.py. Gasta GPU e tempo
      de carregar o modelo na primeira vez.
@@ -18,8 +21,8 @@ egress de alguns ambientes de execução bloqueia domínios como
 trycloudflare.com, então rodar de fora costuma falhar por rede, não por
 bug no workflow.
 
-    python tools/comfy_check.py                 # só a checagem de grafo
-    python tools/comfy_check.py --render         # checagem + render real
+    python tools/comfy_check.py                 # só as checagens 1 e 2
+    python tools/comfy_check.py --render         # 1, 2 e render real
     python tools/comfy_check.py --url http://127.0.0.1:8188 --render
 """
 import argparse
@@ -33,6 +36,24 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 WORKFLOW = ROOT / "workflows" / "flux_depth.json"
+
+
+def checar_servidor(url: str) -> None:
+    with urllib.request.urlopen(f"{url}/system_stats", timeout=15) as r:
+        stats = json.loads(r.read())
+
+    versao = stats.get("system", {}).get("comfyui_version", "?")
+    print(f"servidor no ar — ComfyUI {versao}")
+
+    devices = stats.get("devices") or []
+    if not devices:
+        print("[AVISO] nenhuma GPU listada — vai rodar em CPU (inviavelmente lento)")
+    for d in devices:
+        livre = d.get("vram_free", 0) / 1e9
+        total = d.get("vram_total", 0) / 1e9
+        print(f"  {d.get('name', '?')} — {livre:.1f} de {total:.1f} GB de VRAM livres")
+        if total and total < 14:
+            print("  [AVISO] menos de 14 GB de VRAM: Flux fp8 pode dar OOM")
 
 
 def checar_grafo(url: str) -> int:
@@ -50,10 +71,16 @@ def checar_grafo(url: str) -> int:
             continue
 
         spec = info[ct]["input"]
-        conhecidos = set(spec.get("required", {})) | set(spec.get("optional", {})) | {"upload"}
+        obrigatorios = set(spec.get("required", {}))
+        conhecidos = obrigatorios | set(spec.get("optional", {})) | {"upload"}
+
         extras = set(node["inputs"]) - conhecidos
+        faltando = obrigatorios - set(node["inputs"])
         if extras:
             print(f"[FALHA] nó {nid} ({ct}): inputs não reconhecidos {sorted(extras)}")
+            falhas += 1
+        if faltando:
+            print(f"[FALHA] nó {nid} ({ct}): inputs obrigatórios ausentes {sorted(faltando)}")
             falhas += 1
 
         for k, v in node["inputs"].items():
@@ -118,7 +145,13 @@ def main():
                      help="depois da checagem de grafo, renderiza de verdade (gasta GPU)")
     args = ap.parse_args()
 
-    print(f"checando grafo contra {args.url} ...\n")
+    print(f"checando {args.url} ...\n")
+    try:
+        checar_servidor(args.url)
+    except Exception as e:
+        sys.exit(f"servidor inacessível: {e}")
+
+    print()
     if checar_grafo(args.url):
         sys.exit(1)
 

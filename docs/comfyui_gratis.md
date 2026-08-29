@@ -78,20 +78,24 @@ execução (incluindo o desta sessão) bloqueia domínios como
 `trycloudflare.com`, então bater na URL do túnel de fora tende a falhar
 por rede, não por bug no workflow.
 
-Se mesmo assim travar em algo que o `comfy_check.py` não pegou:
+`comfy_check.py` também confere inputs **obrigatórios ausentes**, não só
+valores inválidos — pega, por exemplo, o nó `ControlNetApplyAdvanced`
+(id `12`) precisando de uma entrada extra `vae` em algumas versões do
+ComfyUI, que o grafo do repo não fornece. Se aparecer `[FALHA] ... inputs
+obrigatórios ausentes ['vae']`, a correção é manual:
 
 1. Abra a URL do túnel no navegador (interface do ComfyUI).
 2. **Workflow → Open** e selecione `workflows/flux_depth.json`.
-3. Rode manualmente (botão de fila) — a mensagem de erro aparece embaixo
-   à direita. O ponto mais provável de ainda quebrar depois da checagem
-   automática: **nó `ControlNetApplyAdvanced`** (id `12`) — em algumas
-   versões do ComfyUI esse nó pede uma entrada extra `vae` (ligada ao
-   `VAELoader`, nó `4`) que o `comfy_check.py` não valida porque é uma
-   ligação, não um valor fixo. Se a mensagem mencionar `vae` faltando
-   nesse nó, adicione a ligação na interface.
-4. Depois de qualquer ajuste manual, exporte de novo em **Save (API
-   Format)**, sobrescreva `workflows/flux_depth.json` e mande o arquivo
-   pra mim (ou commite direto) — assim o próximo uso já sai certo.
+3. No nó `ControlNetApplyAdvanced`, ligue a entrada `vae` à saída do
+   `VAELoader` (nó `4`).
+4. Exporte de novo em **Save (API Format)**, sobrescreva
+   `workflows/flux_depth.json` e mande o arquivo pra mim (ou commite
+   direto) — assim o próximo uso já sai certo.
+
+Para qualquer outra coisa que o `comfy_check.py` não pegue (é uma
+checagem estática — não substitui rodar de verdade), rode manualmente
+pela interface do ComfyUI (botão de fila) e leia a mensagem de erro que
+aparece embaixo à direita.
 
 Se preferir montar do zero em vez de depurar o pronto, a tabela abaixo tem
 a lista completa de nós e conexões.
