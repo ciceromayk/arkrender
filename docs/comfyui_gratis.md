@@ -37,30 +37,58 @@ mas os modelos no Drive não somem: reabrir o notebook depois vira só
 
 ---
 
-## 2. O workflow já vem pronto (mas não testado numa GPU real)
+## 2. O workflow já vem pronto (mas nunca rodou numa GPU real)
 
 `workflows/flux_depth.json` já está no repo, montado com base em workflows
 públicos conhecidos de Flux + ControlNet Union depth — os ids dos nós já
 batem com `core/engines/comfy_engine.py`, não precisa editar nada. **Mas eu
 não tenho GPU para rodar de ponta a ponta antes de publicar**, então ele
-pode falhar ao carregar ou ao executar. Se isso acontecer:
+pode falhar ao carregar ou ao executar.
+
+### Valide sem gastar GPU primeiro
+
+Depois que o servidor subir no Colab (célula nova, no próprio notebook):
+
+```python
+!cd /content/ark && python tools/comfy_check.py
+```
+
+(`/content/ark` é o clone do repo — se ainda não clonou dentro do Colab,
+`!git clone https://github.com/ciceromayk/arkrender /content/ark` antes.)
+
+Isso confere, contra o `/object_info` do próprio ComfyUI, se todo nó do
+grafo existe (custom node instalado?) e se cada valor fixo (nome de
+checkpoint/modelo) está nas opções válidas — sem carregar modelo nenhum,
+em segundos. Se aparecer `[FALHA]`, a mensagem já diz o nó e o campo
+exatos. Quando sair **"grafo OK"**, rode a etapa que gasta GPU de verdade:
+
+```python
+!cd /content/ark && python tools/comfy_check.py --render
+```
+
+Isso renderiza a fixture sintética de `bench/in/torre_hidden_line.png`
+pelo `core.engines.comfy_engine.ComfyEngine` de verdade (a mesma classe
+que o app e o `bench/run.py` usam) e imprime a aderência — primeira
+execução carrega o modelo, conte alguns minutos. Se falhar, a mensagem
+de erro agora vem com o nó que quebrou (ex.: `ComfyUI: nó 11
+(DepthAnythingV2Preprocessor) falhou — ...`), não mais vazia.
+
+Rode os dois **de dentro do Colab** — o egress de alguns ambientes de
+execução (incluindo o desta sessão) bloqueia domínios como
+`trycloudflare.com`, então bater na URL do túnel de fora tende a falhar
+por rede, não por bug no workflow.
+
+Se mesmo assim travar em algo que o `comfy_check.py` não pegou:
 
 1. Abra a URL do túnel no navegador (interface do ComfyUI).
-2. **Workflow → Open** e selecione `workflows/flux_depth.json`. Se o
-   ComfyUI recusar carregar, ele aponta o nó/campo com problema.
-3. Se carregar mas falhar ao clicar em "Run" (botão de fila), a mensagem de
-   erro aparece embaixo à direita — os dois pontos mais prováveis de
-   quebrar:
-   - **Nó `DepthAnythingV2Preprocessor`** (id `11`): o campo `ckpt_name`
-     está como `depth_anything_v2_vitl.pth`. Se o ComfyUI reclamar que o
-     valor não está na lista, abra o combo do nó na interface e escolha
-     a opção equivalente que aparecer (o preprocessador baixa o
-     checkpoint sozinho na primeira vez que roda).
-   - **Nó `ControlNetApplyAdvanced`** (id `12`): em algumas versões do
-     ComfyUI esse nó pede uma entrada extra `vae` (ligada ao `VAELoader`,
-     nó `4`). Se a mensagem de erro mencionar `vae` faltando nesse nó,
-     adicione a ligação na interface e salve de novo em **Save (API
-     Format)** por cima do mesmo arquivo.
+2. **Workflow → Open** e selecione `workflows/flux_depth.json`.
+3. Rode manualmente (botão de fila) — a mensagem de erro aparece embaixo
+   à direita. O ponto mais provável de ainda quebrar depois da checagem
+   automática: **nó `ControlNetApplyAdvanced`** (id `12`) — em algumas
+   versões do ComfyUI esse nó pede uma entrada extra `vae` (ligada ao
+   `VAELoader`, nó `4`) que o `comfy_check.py` não valida porque é uma
+   ligação, não um valor fixo. Se a mensagem mencionar `vae` faltando
+   nesse nó, adicione a ligação na interface.
 4. Depois de qualquer ajuste manual, exporte de novo em **Save (API
    Format)**, sobrescreva `workflows/flux_depth.json` e mande o arquivo
    pra mim (ou commite direto) — assim o próximo uso já sai certo.

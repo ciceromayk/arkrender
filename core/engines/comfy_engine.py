@@ -70,6 +70,18 @@ class ComfyEngine(Engine):
             time.sleep(2)
         raise TimeoutError(f"ComfyUI não devolveu resultado em {timeout}s")
 
+    @staticmethod
+    def _erro_execucao(hist: dict) -> str:
+        """ComfyUI reporta o nó que quebrou em status.messages — sem isso,
+        um grafo com erro devolve outputs vazio e o chamador não sabe por quê."""
+        for tipo, dados in hist.get("status", {}).get("messages", []):
+            if tipo == "execution_error":
+                no = dados.get("node_id", "?")
+                classe = dados.get("node_type", "?")
+                msg = dados.get("exception_message", "erro sem mensagem")
+                return f"ComfyUI: nó {no} ({classe}) falhou — {msg}"
+        return "ComfyUI não devolveu nenhuma imagem e não reportou erro explícito"
+
     def _upload(self, image_path: str) -> str:
         """multipart sem dependência externa."""
         boundary = uuid.uuid4().hex
@@ -106,9 +118,10 @@ class ComfyEngine(Engine):
             pid = self._post({"prompt": wf, "client_id": f"arkitekt-{uuid.uuid4().hex[:8]}"})
             hist = self._wait(pid)
 
-            img = next(
-                i for o in hist["outputs"].values() for i in o.get("images", [])
-            )
+            imagens = [i for o in hist.get("outputs", {}).values() for i in o.get("images", [])]
+            if not imagens:
+                raise RuntimeError(self._erro_execucao(hist))
+            img = imagens[0]
             q = f"filename={img['filename']}&subfolder={img.get('subfolder','')}&type={img['type']}"
             dest = pathlib.Path(out_dir) / f"{self.name}__{config_id}.png"
             urllib.request.urlretrieve(f"{self.url}/view?{q}", dest)
