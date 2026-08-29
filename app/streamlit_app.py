@@ -8,8 +8,10 @@ Nenhuma lógica de render mora aqui — só coleta input, chama core/ e exibe.
     streamlit run app/streamlit_app.py
 """
 import os
+import re
 import sys
 import json
+import shutil
 import pathlib
 import tempfile
 
@@ -27,8 +29,22 @@ st.set_page_config(page_title="ARKITEKT", page_icon="🏗️", layout="wide")
 
 
 def _secret_or_env(key: str) -> str:
-    val = st.secrets.get(key, "") if hasattr(st, "secrets") else ""
+    # st.secrets lança exceção (não StopIteration/KeyError) quando não existe
+    # NENHUM secrets.toml no ambiente — caminho padrão de quem roda local
+    # sem configurar segredo nenhum, então não pode deixar a página quebrar.
+    try:
+        val = st.secrets.get(key, "")
+    except Exception:
+        val = ""
     return val or os.environ.get(key, "")
+
+
+def _safe_name(name: str, fallback: str) -> str:
+    """Nome de arquivo seguro para path no disco — sem diretórios, sem
+    caracteres que permitam escapar de tmpdir/projetos/ (ex.: '../../etc')."""
+    base = pathlib.Path(name or "").name
+    base = re.sub(r"[^A-Za-z0-9_.-]", "_", base).strip("._")
+    return base or fallback
 
 
 st.title("🏗️ ARKITEKT")
@@ -102,11 +118,16 @@ need_comfy = comfy_url if usa_comfy else True
 pronto = bool(upload) and bool(need_fal) and bool(need_comfy)
 
 if st.button("Renderizar", type="primary", disabled=not pronto):
-    if fal_key:
-        os.environ["FAL_KEY"] = fal_key
+    # limpa o tmpdir da renderização anterior desta sessão — sem isso o
+    # disco acumula screenshot+control_map+render de todo clique
+    tmpdir_anterior = st.session_state.get("_tmpdir")
+    if tmpdir_anterior:
+        shutil.rmtree(tmpdir_anterior, ignore_errors=True)
 
     tmpdir = tempfile.mkdtemp(prefix="arkitekt_")
-    src_path = pathlib.Path(tmpdir) / upload.name
+    st.session_state["_tmpdir"] = tmpdir
+    src_name = _safe_name(upload.name, "screenshot.png")
+    src_path = pathlib.Path(tmpdir) / src_name
     src_path.write_bytes(upload.getvalue())
 
     projeto = Projeto(nome=nome, seed=int(seed), estilo=estilo, iluminacao=iluminacao,
@@ -119,6 +140,14 @@ if st.button("Renderizar", type="primary", disabled=not pronto):
     else:
         engine = FalEngine()
 
+    # o SDK da fal lê a chave de os.environ (é assim que fal_client funciona) —
+    # janela de exposição fica restrita à chamada, valor anterior é restaurado
+    # depois. Processo é compartilhado entre sessões do Streamlit, então evite
+    # deploys multiusuário simultâneo com chaves diferentes por sessão.
+    fal_key_anterior = os.environ.get("FAL_KEY")
+    if fal_key:
+        os.environ["FAL_KEY"] = fal_key
+
     with st.spinner("Renderizando — estágio 1 (estrutura)"
                      + (" + estágio 2 (acabamento)..." if refino else "...")):
         try:
@@ -126,13 +155,39 @@ if st.button("Renderizar", type="primary", disabled=not pronto):
         except Exception as e:
             st.error(f"Falhou: {e}")
             st.stop()
+        finally:
+            if fal_key_anterior is not None:
+                os.environ["FAL_KEY"] = fal_key_anterior
+            elif fal_key:
+                os.environ.pop("FAL_KEY", None)
+
+    st.session_state["log"] = log
+    st.session_state["projeto"] = projeto
+    st.session_state["refino_usado"] = refino
+
+elif not upload:
+    st.info("Envie um screenshot para habilitar o botão.")
+elif usa_comfy and not comfy_url:
+    st.info("Informe a URL do ComfyUI na barra lateral para habilitar o botão.")
+elif not need_fal:
+    st.info("Informe a FAL_KEY na barra lateral para habilitar o botão "
+             "(obrigatória com motor fal.ai, ou com Refino ligado).")
+
+# Fora do bloco do botão de propósito: marcar a checkbox "salvar" abaixo
+# dispara um rerun do script em que st.button() volta a False, então o
+# resultado só sobrevive se vier do session_state, não de uma variável local.
+if "log" in st.session_state:
+    log = st.session_state["log"]
+    projeto = st.session_state["projeto"]
+    refino_usado = st.session_state["refino_usado"]
+    nome_seguro = _safe_name(projeto.nome, "projeto")
 
     st.subheader("2. Resultado")
     col1, col2 = st.columns(2)
     with col1:
         st.image(log["estrutura"], caption="estágio 1 — estrutura")
     with col2:
-        st.image(log["final"], caption="estágio 2 — final" if refino else "final (sem refino)")
+        st.image(log["final"], caption="estágio 2 — final" if refino_usado else "final (sem refino)")
 
     aderencia = log["aderencia"]
     cor = "🟢" if aderencia >= 0.80 else ("🟡" if aderencia >= 0.45 else "🔴")
@@ -151,19 +206,11 @@ if st.button("Renderizar", type="primary", disabled=not pronto):
         st.download_button("Baixar render final", f, file_name=pathlib.Path(log["final"]).name)
 
     st.download_button("Baixar log (JSON)", json.dumps(log, ensure_ascii=False, indent=2),
-                        file_name=f"{nome}.json")
+                        file_name=f"{nome_seguro}.json")
 
     with st.expander("Prompt usado"):
         st.code(log["prompt"], language=None)
 
     if st.checkbox("Salvar identidade visual do projeto (projetos/*.json)"):
-        dest = projeto.salvar(str(ROOT / "projetos" / f"{nome}.json"))
+        dest = projeto.salvar(str(ROOT / "projetos" / f"{nome_seguro}.json"))
         st.info(f"Salvo em {dest} — reaproveite para novos ângulos com a mesma coerência visual.")
-
-elif not upload:
-    st.info("Envie um screenshot para habilitar o botão.")
-elif usa_comfy and not comfy_url:
-    st.info("Informe a URL do ComfyUI na barra lateral para habilitar o botão.")
-elif not need_fal:
-    st.info("Informe a FAL_KEY na barra lateral para habilitar o botão "
-             "(obrigatória com motor fal.ai, ou com Refino ligado).")
