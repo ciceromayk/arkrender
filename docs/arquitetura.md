@@ -151,9 +151,10 @@ Pipeline híbrido completo ≈ **US$ 0,10/imagem final**. Redraw a US$ 15/mês p
 | Higgsfield (MCP) | ⚠️ Plano free, 8 créditos | Dá para 1–2 testes de editor multimodal. Não dá para benchmark |
 | fal.ai (Flux + ControlNet) | 🔑 Precisa de `FAL_KEY` | Rota principal. Crédito inicial baixo resolve o benchmark |
 | Replicate | 🔑 Precisa de `REPLICATE_API_TOKEN` | Alternativa/controle |
-| ComfyUI | 🖥️ Precisa de GPU | Só depois de validar que a rota vale |
+| ComfyUI | 🆓 Grátis via Colab/Kaggle (GPU emprestada) | Ver [`docs/comfyui_gratis.md`](comfyui_gratis.md) — sem custo por imagem no estágio 1, sessão não é permanente |
 
-O harness de benchmark já está escrito e roda os três assim que houver chave.
+O harness de benchmark já está escrito e roda os três assim que houver chave
+(ou, no caso do ComfyUI, assim que o notebook do Colab estiver no ar).
 
 ---
 

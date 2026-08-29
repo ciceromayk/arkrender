@@ -20,24 +20,29 @@ sys.path.insert(0, str(ROOT))
 
 from core import presets
 from core.pipeline import Projeto, render
+from core.engines.fal_engine import FalEngine
+from core.engines.comfy_engine import ComfyEngine
 
 st.set_page_config(page_title="ARKITEKT", page_icon="🏗️", layout="wide")
 
 
-def _fal_key() -> str:
-    """Chave vem do secrets do Streamlit Cloud, de env var, ou input manual."""
-    key = st.secrets.get("FAL_KEY", "") if hasattr(st, "secrets") else ""
-    if not key:
-        key = os.environ.get("FAL_KEY", "")
-    return key
+def _secret_or_env(key: str) -> str:
+    val = st.secrets.get(key, "") if hasattr(st, "secrets") else ""
+    return val or os.environ.get(key, "")
 
 
 st.title("🏗️ ARKITEKT")
 st.caption("Screenshot de modelo 3D → render fotorrealista, com fidelidade geométrica medida.")
 
 with st.sidebar:
-    st.header("Chave da API")
-    key_from_env = _fal_key()
+    st.header("Motor (estágio 1 — estrutura)")
+    motor = st.radio("Motor", ["fal.ai (pago, ~US$0,05/img)", "ComfyUI (grátis, self-hosted)"],
+                      label_visibility="collapsed")
+    usa_comfy = motor.startswith("ComfyUI")
+
+    st.divider()
+    st.header("Chave da API — fal.ai")
+    key_from_env = _secret_or_env("FAL_KEY")
     if key_from_env:
         st.success("FAL_KEY carregada dos secrets/ambiente.")
         fal_key = key_from_env
@@ -45,6 +50,20 @@ with st.sidebar:
         fal_key = st.text_input("FAL_KEY", type="password",
                                  help="Não é salva — vale só para esta sessão do navegador.")
         st.caption("Pegue em fal.ai → Settings → Keys. ~US$0,10/render.")
+    if usa_comfy:
+        st.caption("Só é obrigatória se o Refino (estágio 2) ficar ligado — ele sempre roda no fal.ai.")
+
+    comfy_url = ""
+    if usa_comfy:
+        st.divider()
+        st.header("ComfyUI (Colab/Kaggle grátis)")
+        comfy_url = _secret_or_env("ARKITEKT_COMFY_URL")
+        if comfy_url:
+            st.success("URL do ComfyUI carregada dos secrets/ambiente.")
+        else:
+            comfy_url = st.text_input("URL do túnel", placeholder="https://xxxx.trycloudflare.com",
+                                       help="Suba com colab/arkitekt_comfyui.ipynb — a URL muda a cada sessão do Colab.")
+        st.caption("Veja docs/comfyui_gratis.md para subir o servidor de graça.")
 
     st.divider()
     st.header("Identidade do projeto")
@@ -63,10 +82,13 @@ with st.sidebar:
     st.header("Controle")
     control_weight = st.slider("control_weight (quanto trava a geometria)", 0.0, 1.0, 0.90, 0.05)
     strength = st.slider("strength (estágio 1)", 0.0, 1.0, 0.75, 0.05)
-    refino = st.checkbox("Refino (estágio 2 — acabamento)", value=True)
+    refino = st.checkbox("Refino (estágio 2 — acabamento)", value=not usa_comfy,
+                          help="Sempre roda no fal.ai, mesmo com motor ComfyUI. Desligue para ficar 100% grátis.")
     refino_strength = st.slider("refino_strength", 0.0, 0.6, 0.25, 0.05,
                                  disabled=not refino,
                                  help="Acima de ~0.35 o refino começa a mexer na forma.")
+    if usa_comfy and refino:
+        st.warning("Refino ligado + motor ComfyUI: o estágio 1 é grátis, mas o estágio 2 cobra do fal.ai.")
 
 st.subheader("1. Screenshot de origem")
 upload = st.file_uploader("SketchUp/Revit — hidden line ou clay, 2048px no lado maior",
@@ -75,8 +97,13 @@ upload = st.file_uploader("SketchUp/Revit — hidden line ou clay, 2048px no lad
 if upload:
     st.image(upload, caption="origem", width=480)
 
-if st.button("Renderizar", type="primary", disabled=not (upload and fal_key)):
-    os.environ["FAL_KEY"] = fal_key
+need_fal = fal_key if (not usa_comfy or refino) else True   # obrigatória exceto comfy sem refino
+need_comfy = comfy_url if usa_comfy else True
+pronto = bool(upload) and bool(need_fal) and bool(need_comfy)
+
+if st.button("Renderizar", type="primary", disabled=not pronto):
+    if fal_key:
+        os.environ["FAL_KEY"] = fal_key
 
     tmpdir = tempfile.mkdtemp(prefix="arkitekt_")
     src_path = pathlib.Path(tmpdir) / upload.name
@@ -86,9 +113,16 @@ if st.button("Renderizar", type="primary", disabled=not (upload and fal_key)):
                        camera=camera, control_weight=control_weight, strength=strength,
                        refino=refino, refino_strength=refino_strength, prompt_extra=prompt_extra)
 
-    with st.spinner("Renderizando — estágio 1 (estrutura) + estágio 2 (acabamento)..."):
+    if usa_comfy:
+        os.environ["ARKITEKT_COMFY_URL"] = comfy_url
+        engine = ComfyEngine()
+    else:
+        engine = FalEngine()
+
+    with st.spinner("Renderizando — estágio 1 (estrutura)"
+                     + (" + estágio 2 (acabamento)..." if refino else "...")):
         try:
-            log = render(projeto, str(src_path), out_dir=tmpdir)
+            log = render(projeto, str(src_path), out_dir=tmpdir, engine=engine)
         except Exception as e:
             st.error(f"Falhou: {e}")
             st.stop()
@@ -126,7 +160,10 @@ if st.button("Renderizar", type="primary", disabled=not (upload and fal_key)):
         dest = projeto.salvar(str(ROOT / "projetos" / f"{nome}.json"))
         st.info(f"Salvo em {dest} — reaproveite para novos ângulos com a mesma coerência visual.")
 
-elif not fal_key:
-    st.info("Informe a FAL_KEY na barra lateral para habilitar o botão.")
 elif not upload:
     st.info("Envie um screenshot para habilitar o botão.")
+elif usa_comfy and not comfy_url:
+    st.info("Informe a URL do ComfyUI na barra lateral para habilitar o botão.")
+elif not need_fal:
+    st.info("Informe a FAL_KEY na barra lateral para habilitar o botão "
+             "(obrigatória com motor fal.ai, ou com Refino ligado).")

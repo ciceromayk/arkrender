@@ -28,6 +28,7 @@ import pathlib
 import time
 
 from . import presets, fidelity
+from .engines.base import Engine
 from .engines.fal_engine import FalEngine, RENDER_ENDPOINT
 
 
@@ -89,11 +90,17 @@ def _refinar(eng: FalEngine, image_path: str, prompt: str, strength: float,
 
 
 def render(projeto: Projeto, screenshot: str, out_dir: str = "out",
-           engine: Optional[FalEngine] = None, tau: int = 4) -> dict:
+           engine: Optional[Engine] = None, tau: int = 4) -> dict:
     """Roda o pipeline completo e devolve o log da geração.
 
     Mede aderência nos DOIS estágios: se o refino derrubar a aderência, o
     refino_strength está alto demais para este projeto.
+
+    `engine` é o motor do ESTÁGIO 1 (estrutura) — pode ser qualquer Engine
+    (fal, comfy, replicate). O ESTÁGIO 2 (refino) sempre usa fal.ai: é a
+    única rota com o editor multimodal img2img fraco que o acabamento
+    precisa, então roda com FalEngine mesmo que o estágio 1 tenha usado
+    outro motor (ex.: ComfyUI de graça + refino pago, opcional).
     """
     eng = engine or FalEngine()
     ok, why = eng.available()
@@ -127,7 +134,8 @@ def render(projeto: Projeto, screenshot: str, out_dir: str = "out",
     # --- estágio 2 -------------------------------------------------------
     if projeto.refino:
         dest = out / f"{tag}__e2_refino.png"
-        final = _refinar(eng, r1.image_path, projeto.prompt(),
+        refino_eng = eng if isinstance(eng, FalEngine) else FalEngine()
+        final = _refinar(refino_eng, r1.image_path, projeto.prompt(),
                          projeto.refino_strength, projeto.seed, dest)
         f2 = fidelity.score(screenshot, final, tau=tau)
         log["refino"] = final
