@@ -22,12 +22,18 @@ ajustando os comandos de GPU) e rode as células em ordem. Ela:
 
 1. Ativa GPU T4 grátis
 2. Instala ComfyUI + `comfyui_controlnet_aux` (nó de depth)
-3. Baixa Flux.1-dev (fp8) + ControlNet Union + text encoders (~25 GB —
-   precisa de login/token Hugging Face porque o Flux.1-dev é *gated*)
-4. Sobe o servidor e expõe uma URL pública temporária via `cloudflared`
+3. Monta seu **Google Drive** e faz `models/` apontar pra lá — os ~25 GB de
+   Flux.1-dev (fp8) + ControlNet Union + text encoders ficam salvos
+   permanentemente numa pasta `arkitekt_comfy_models/` no seu Drive
+4. Confere o que já está no Drive: **na primeira vez** baixa tudo (pede
+   login/token Hugging Face, porque o Flux.1-dev é *gated*); **da segunda
+   vez em diante**, detecta que já está tudo lá e pula download e login
+5. Sobe o servidor e expõe uma URL pública temporária via `cloudflared`
 
 No fim você tem uma URL tipo `https://xxxx.trycloudflare.com`. Ela muda
-toda vez que você reinicia o notebook — não é uma URL fixa de produção.
+toda vez que você reinicia o notebook — não é uma URL fixa de produção —
+mas os modelos no Drive não somem: reabrir o notebook depois vira só
+"rodar as células, esperar o servidor subir", sem rebaixar nada.
 
 ---
 
