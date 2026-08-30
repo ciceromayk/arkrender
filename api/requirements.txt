@@ -1,0 +1,9 @@
+# reaproveita tudo do core/ (fal-client, opencv, numpy, ...)
+-r ../requirements.txt
+
+fastapi>=0.115
+uvicorn[standard]>=0.30
+supabase>=2.7
+python-jose[cryptography]>=3.3
+python-multipart>=0.0.9
+pydantic-settings>=2.4
