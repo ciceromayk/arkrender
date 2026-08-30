@@ -48,8 +48,16 @@ arkitekt/
 │   └── demo_fixture.py          valida a métrica sem gastar crédito
 ├── docs/arquitetura.md          decisões, pipeline, custos, como exportar do Revit/SketchUp
 ├── docs/modo_estudo.md          por que o modo estudo é separado, e como usar
-└── app/                         interface Streamlit — casca fina sobre core/
+├── docs/fase_b_setup.md         setup do SaaS multi-usuário (api/ + web/ + Supabase)
+├── app/                         interface Streamlit — uso interno, uma chave por pessoa
+├── api/                         FastAPI — casca HTTP multi-usuário sobre core/ (Fase B)
+├── web/                         Vue 3 — login, projetos, histórico (Fase B)
+└── supabase/migrations/         schema Postgres do SaaS (Fase B)
 ```
+
+`app/` (Streamlit) e `api/`+`web/` (FastAPI+Vue) coexistem por enquanto —
+o segundo é o caminho multi-usuário/comercial (Fase B), o primeiro
+continua servindo pra uso interno rápido, uma chave por pessoa.
 
 ## Instalar
 
