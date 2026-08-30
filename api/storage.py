@@ -7,9 +7,21 @@ Storage em supabase/migrations/0001_init.sql garante isso.
 """
 import mimetypes
 import pathlib
+import re
 
 from .config import settings
 from .deps import get_supabase
+
+
+def safe_filename(name: str, fallback: str = "arquivo") -> str:
+    """Nome de arquivo seguro pra usar em Path(tmpdir) / nome — sem
+    componentes de diretório, sem caracteres que permitam path traversal
+    (../../etc/passwd) ou substituir a base inteira (um filename absoluto
+    tipo /etc/cron.d/x faz Path(tmpdir) / nome IGNORAR tmpdir por completo
+    — comportamento documentado do próprio pathlib)."""
+    base = pathlib.Path(name or "").name  # descarta qualquer componente de diretório
+    base = re.sub(r"[^A-Za-z0-9_.-]", "_", base).strip("._")
+    return base or fallback
 
 
 def upload_geracao(user_id: str, geracao_id: str, local_path: str) -> str:

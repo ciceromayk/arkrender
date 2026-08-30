@@ -24,12 +24,15 @@ substituição ainda.
 
 ## 2. `api/` (FastAPI)
 
+**Rode tudo a partir da RAIZ do repo, não de dentro de `api/`** — os
+imports internos (`from .config import ...`) são relativos ao pacote
+`api`, então `uvicorn` precisa enxergar a raiz do repo no `sys.path`.
+
 ```bash
-cd api
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-cp .env.example .env        # preencha SUPABASE_URL / SERVICE_ROLE_KEY / JWT_SECRET / FAL_KEY
-uvicorn main:app --reload
+pip install -r api/requirements.txt
+cp api/.env.example api/.env   # preencha SUPABASE_URL / SERVICE_ROLE_KEY / JWT_SECRET / FAL_KEY
+uvicorn api.main:app --reload
 ```
 
 `FAL_KEY` aqui é a chave **do operador** (você) — paga a geração de todos

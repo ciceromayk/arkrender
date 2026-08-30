@@ -5,11 +5,19 @@ navegador do usuário como no app/streamlit_app.py. É esse deslocamento
 que torna a geração "grátis" do ponto de vista do cliente: quem paga a
 API é o operador, bancado pela assinatura (Fatia 2).
 """
+import pathlib
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# os imports relativos do pacote api/ (from .config import ...) só funcionam
+# rodando `uvicorn api.main:app` a partir da RAIZ do repo — mas isso faz
+# env_file=".env" resolver contra a raiz, não contra api/.env. Ancora no
+# diretório deste arquivo pra funcionar independente de onde o uvicorn roda.
+_ENV_FILE = pathlib.Path(__file__).resolve().parent / ".env"
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=str(_ENV_FILE), extra="ignore")
 
     # Supabase
     SUPABASE_URL: str

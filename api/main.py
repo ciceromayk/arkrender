@@ -6,11 +6,20 @@ mora aqui — mesmo princípio do app/streamlit_app.py, agora multi-usuário.
 
     uvicorn api.main:app --reload
 """
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
 from .routers import render as render_router
+
+# core/engines/fal_engine.py lê a chave direto de os.environ (é assim que o
+# fal_client funciona) — pydantic-settings só popula settings.FAL_KEY, não
+# exporta de volta pro ambiente do processo. Sem isso, todo /render falha
+# com "motor indisponível" mesmo com api/.env preenchido corretamente.
+if settings.FAL_KEY:
+    os.environ["FAL_KEY"] = settings.FAL_KEY
 
 app = FastAPI(title="ARKITEKT API", version="0.1.0")
 

@@ -8,6 +8,7 @@ inteira de bug de concorrência/dessincronia.
 import datetime as dt
 
 from fastapi import HTTPException
+from postgrest.exceptions import APIError
 
 from .deps import get_supabase
 
@@ -52,7 +53,12 @@ def usage_this_cycle(user_id: str) -> tuple[int, int, dt.datetime]:
 
 
 def check_quota(user_id: str) -> None:
-    """Levanta HTTP 402 se a cota do ciclo já estourou."""
+    """Levanta HTTP 402 se a cota do ciclo já estourou.
+
+    Só para exibição/feedback rápido antes do usuário nem escolher um
+    arquivo — não é a checagem que vale contra corrida entre requisições
+    concorrentes. Ver reservar_geracao() para a checagem que de fato
+    protege a cota."""
     usados, cota, _ = usage_this_cycle(user_id)
     if usados >= cota:
         raise HTTPException(
@@ -60,3 +66,32 @@ def check_quota(user_id: str) -> None:
             f"cota do plano esgotada ({usados}/{cota} gerações neste ciclo) — "
             "aguarde o próximo ciclo ou faça upgrade de plano",
         )
+
+
+def reservar_geracao(user_id: str, modo: str, engine: str) -> str:
+    """Reserva atomicamente uma vaga de cota, via RPC (supabase/migrations/
+    0002_quota_atomica.sql): checa a cota e insere a linha placeholder de
+    `geracoes` numa ÚNICA transação Postgres, travada por usuário — fecha
+    a corrida entre requisições concorrentes que um "count então insert"
+    em duas chamadas separadas não fecha (duas requisições perto do limite
+    podiam ambas passar na checagem antes de qualquer uma gravar).
+
+    Devolve o id da linha reservada. Se a renderização falhar depois,
+    quem chamou deve apagar essa linha (libera a vaga de volta) — ver
+    routers/render.py.
+    """
+    sb = get_supabase()
+    try:
+        res = sb.rpc(
+            "reservar_geracao",
+            {"p_user_id": user_id, "p_modo": modo, "p_engine": engine},
+        ).execute()
+    except APIError as e:
+        if e.code == "P0001":
+            raise HTTPException(402, "cota do plano esgotada — aguarde o próximo "
+                                       "ciclo ou faça upgrade de plano") from e
+        if e.code == "P0002":
+            raise HTTPException(404, "perfil não encontrado — faça login de novo") from e
+        raise HTTPException(500, f"falha ao reservar cota: {e.message}") from e
+
+    return res.data

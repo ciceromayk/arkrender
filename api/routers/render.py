@@ -11,7 +11,6 @@ import pathlib
 import shutil
 import sys
 import tempfile
-import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -24,9 +23,9 @@ from core.engines.fal_engine import FalEngine  # noqa: E402
 from core.pipeline import Projeto, render  # noqa: E402
 
 from ..deps import get_current_user, get_supabase
-from ..quota import check_quota, usage_this_cycle
+from ..quota import reservar_geracao, usage_this_cycle
 from ..schemas import RenderResponse
-from ..storage import upload_geracao
+from ..storage import safe_filename, upload_geracao
 
 router = APIRouter()
 
@@ -48,11 +47,20 @@ def render_endpoint(
     projeto_id: Optional[str] = Form(None),
     user_id: str = Depends(get_current_user),
 ) -> RenderResponse:
-    check_quota(user_id)
+    engine = FalEngine()
+
+    # reserva a vaga de cota ANTES de gastar tempo/dinheiro renderizando —
+    # é uma checagem+insert atômicos (ver supabase/migrations/
+    # 0002_quota_atomica.sql), fecha a corrida entre requisições
+    # concorrentes que um "count então insert" em duas chamadas separadas
+    # não fecha. Levanta 402 sozinho se a cota estourou.
+    geracao_id = reservar_geracao(user_id, "render", engine.name)
+    sb = get_supabase()
 
     tmpdir = tempfile.mkdtemp(prefix="arkitekt_api_")
     try:
-        src_path = pathlib.Path(tmpdir) / (screenshot.filename or "screenshot.png")
+        nome_seguro = safe_filename(screenshot.filename, "screenshot.png")
+        src_path = pathlib.Path(tmpdir) / nome_seguro
         src_path.write_bytes(screenshot.file.read())
 
         projeto = Projeto(
@@ -62,31 +70,25 @@ def render_endpoint(
             prompt_extra=prompt_extra, notas=notas,
         )
 
-        engine = FalEngine()
         try:
             log = render(projeto, str(src_path), out_dir=tmpdir, engine=engine)
-        except RuntimeError as e:
-            # "motor indisponível" (chave ausente) ou "estágio 1/2 falhou"
-            # (erro do fal.ai) — ambos vêm de core/pipeline.py como RuntimeError.
-            raise HTTPException(502, str(e)) from e
 
-        geracao_id = str(uuid.uuid4())
-        screenshot_path = upload_geracao(user_id, geracao_id, str(src_path))
-        imagem_final_path = upload_geracao(user_id, geracao_id, log["final"])
-        control_map_path = (
-            upload_geracao(user_id, geracao_id, log["control_map"])
-            if log.get("control_map") else None
-        )
+            screenshot_path = upload_geracao(user_id, geracao_id, str(src_path))
+            imagem_final_path = upload_geracao(user_id, geracao_id, log["final"])
+            control_map_path = (
+                upload_geracao(user_id, geracao_id, log["control_map"])
+                if log.get("control_map") else None
+            )
+        except Exception:
+            # a renderização (ou o upload) falhou — libera a vaga de cota
+            # reservada de volta, apagando a linha placeholder.
+            sb.table("geracoes").delete().eq("id", geracao_id).execute()
+            raise
 
         aprovado = log["aderencia"] >= 0.80
 
-        sb = get_supabase()
-        sb.table("geracoes").insert({
-            "id": geracao_id,
-            "user_id": user_id,
+        sb.table("geracoes").update({
             "projeto_id": projeto_id,
-            "modo": "render",
-            "engine": engine.name,
             "screenshot_path": screenshot_path,
             "imagem_final_path": imagem_final_path,
             "control_map_path": control_map_path,
@@ -98,7 +100,7 @@ def render_endpoint(
             "prompt": log["prompt"],
             "params": log["params"],
             "log": log,
-        }).execute()
+        }).eq("id", geracao_id).execute()
 
         usados, cota, _ = usage_this_cycle(user_id)
 
@@ -113,5 +115,9 @@ def render_endpoint(
             cota_usada=usados,
             cota_total=cota,
         )
+    except RuntimeError as e:
+        # "motor indisponível" (chave ausente) ou "estágio 1/2 falhou"
+        # (erro do fal.ai) — ambos vêm de core/pipeline.py como RuntimeError.
+        raise HTTPException(502, str(e)) from e
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
